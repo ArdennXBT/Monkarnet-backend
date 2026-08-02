@@ -43,4 +43,30 @@ const modifierProfil = async (req, res) => {
   }
 };
 
-module.exports = { getProfil, modifierProfil };
+
+// Modifier la photo de profil
+const modifierPhoto = async (req, res) => {
+  try {
+    const commercant = await Commercant.findById(req.commercantId);
+
+    if (!commercant) {
+      return res.status(404).json({ message: 'Compte introuvable.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Aucune image envoyée.' });
+    }
+
+    commercant.photo = req.file.path;
+    await commercant.save();
+
+    const commercantSansMotDePasse = commercant.toObject();
+    delete commercantSansMotDePasse.motDePasse;
+
+    res.status(200).json(commercantSansMotDePasse);
+  } catch (error) {
+    res.status(500).json({ message: 'Erreur serveur.', error: error.message });
+  }
+};
+
+module.exports = { getProfil, modifierProfil, modifierPhoto };

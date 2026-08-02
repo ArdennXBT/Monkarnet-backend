@@ -36,6 +36,10 @@ const commercantSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    photo: {
+      type: String,
+      default: '',
+    },
     role: {
       type: String,
       enum: ['commercant', 'sous-compte', 'superadmin'],
