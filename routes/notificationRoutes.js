@@ -1,11 +1,12 @@
 
 const express = require('express');
 const router = express.Router();
-const { creerNotification, listerNotifications } = require('../controllers/notificationController');
+const { creerNotification, listerNotifications, listerMesNotifications, marquerCommeLue } = require('../controllers/notificationController');
 const { proteger, superAdminSeulement } = require('../middlewares/authMiddleware');
 
-// Route pour tout commerçant connecté : voir les notifications
-router.get('/mes-notifications', proteger, listerNotifications);
+// Routes pour tout commerçant connecté
+router.get('/mes-notifications', proteger, listerMesNotifications);
+router.put('/:id/lire', proteger, marquerCommeLue);
 
 // Routes réservées au SuperAdmin
 router.use(proteger, superAdminSeulement);

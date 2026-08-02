@@ -12,7 +12,7 @@ const clientRoutes = require('./routes/clientRoutes');
 const profilRoutes = require('./routes/profilRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-
+const rechercheRoutes = require('./routes/rechercheRoutes');
 
 
 connectDB();
@@ -30,6 +30,7 @@ app.use('/api/clients', clientRoutes);
 app.use('/api/profil', profilRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/recherche', rechercheRoutes);
 
 
 app.get('/', (req, res) => {

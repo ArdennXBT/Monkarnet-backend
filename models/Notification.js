@@ -18,6 +18,12 @@ const notificationSchema = new mongoose.Schema(
       enum: ['tous', 'commercants', 'sous-comptes'],
       default: 'tous',
     },
+    luPar: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Commercant',
+      },
+    ],
   },
   { timestamps: true }
 );
