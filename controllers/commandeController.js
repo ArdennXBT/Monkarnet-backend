@@ -8,30 +8,62 @@ const creerCommande = async (req, res) => {
     const { client, produits, statut } = req.body;
 
     let total = 0;
+    const lignesFinales = [];
 
-    // Vérifier chaque produit et calculer le total
     for (const item of produits) {
-      const produit = await Produit.findOne({ _id: item.produit, commercant: req.commercantId });
+      if (item.produit) {
+        // Produit du catalogue : on vérifie le stock et on le déduit
+        const produit = await Produit.findOne({ _id: item.produit, commercant: req.commercantId });
 
-      if (!produit) {
-        return res.status(404).json({ message: `Produit introuvable.` });
+        if (!produit) {
+          return res.status(404).json({ message: `Produit introuvable.` });
+        }
+
+        if (produit.stock < item.quantite) {
+          return res.status(400).json({ message: `Stock insuffisant pour ${produit.nom}.` });
+        }
+
+        total += item.prixUnitaire * item.quantite;
+
+        produit.stock -= item.quantite;
+        await produit.save();
+
+        lignesFinales.push({
+          produit: item.produit,
+          quantite: item.quantite,
+          prixUnitaire: item.prixUnitaire,
+        });
+      } else if (item.nomLibre) {
+        // Produit saisi librement : pas de stock à gérer
+        total += item.prixUnitaire * item.quantite;
+
+        lignesFinales.push({
+          nomLibre: item.nomLibre,
+          quantite: item.quantite,
+          prixUnitaire: item.prixUnitaire,
+        });
+      } else {
+        return res.status(400).json({ message: 'Chaque produit doit être choisi dans le catalogue ou saisi librement.' });
       }
-
-      if (produit.stock < item.quantite) {
-        return res.status(400).json({ message: `Stock insuffisant pour ${produit.nom}.` });
-      }
-
-      total += item.prixUnitaire * item.quantite;
-
-      // Déduire le stock
-      produit.stock -= item.quantite;
-      await produit.save();
     }
+
+    // Génération du numéro de commande incrémental (CMD-0001, CMD-0002, ...)
+    const dernieresCommande = await Commande.findOne({ commercant: req.commercantId })
+      .sort({ createdAt: -1 })
+      .select('numero');
+
+    let prochainNumero = 1;
+    if (dernieresCommande?.numero) {
+      const dernierChiffre = parseInt(dernieresCommande.numero.split('-')[1], 10);
+      if (!isNaN(dernierChiffre)) prochainNumero = dernierChiffre + 1;
+    }
+    const numero = `CMD-${String(prochainNumero).padStart(4, '0')}`;
 
     const commande = await Commande.create({
       commercant: req.commercantId,
+      numero,
       client,
-      produits,
+      produits: lignesFinales,
       total,
       statut,
     });

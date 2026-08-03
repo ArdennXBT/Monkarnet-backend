@@ -8,6 +8,11 @@ const commandeSchema = new mongoose.Schema(
       ref: 'Commercant',
       required: true,
     },
+    numero: {
+      type: String,
+      required: true,
+    },
+    
     client: {
       nom: { type: String, required: true },
       telephone: { type: String },
@@ -18,7 +23,12 @@ const commandeSchema = new mongoose.Schema(
         produit: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'Produit',
-          required: true,
+          default: null,
+        },
+        nomLibre: {
+          type: String,
+          trim: true,
+          default: '',
         },
         quantite: {
           type: Number,
