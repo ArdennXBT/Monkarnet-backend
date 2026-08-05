@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 
 const produitSchema = new mongoose.Schema(
@@ -28,6 +27,10 @@ const produitSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+    },
+    image: {
+      type: String,
+      default: '',
     },
   },
   { timestamps: true }

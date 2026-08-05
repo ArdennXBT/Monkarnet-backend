@@ -1,4 +1,3 @@
-
 const express = require('express');
 const router = express.Router();
 const { creerProduit, listerProduits, modifierProduit, supprimerProduit } = require('../controllers/produitController');
