@@ -1,4 +1,3 @@
-
 const Commande = require('../models/Commande');
 const Produit = require('../models/Produit');
 
@@ -12,7 +11,7 @@ const creerCommande = async (req, res) => {
 
     for (const item of produits) {
       if (item.produit) {
-        // Produit du catalogue : on vérifie le stock et on le déduit
+        // Produit du catalogue : on vérifie juste le stock, on ne le déduit pas encore
         const produit = await Produit.findOne({ _id: item.produit, commercant: req.commercantId });
 
         if (!produit) {
@@ -24,9 +23,6 @@ const creerCommande = async (req, res) => {
         }
 
         total += item.prixUnitaire * item.quantite;
-
-        produit.stock -= item.quantite;
-        await produit.save();
 
         lignesFinales.push({
           produit: item.produit,
@@ -94,6 +90,49 @@ const modifierCommande = async (req, res) => {
 
     if (!commande) {
       return res.status(404).json({ message: 'Commande introuvable.' });
+    }
+
+    const statutPrecedent = commande.statut;
+    const nouveauStatut = req.body.statut;
+    const changementStatut = nouveauStatut && nouveauStatut !== statutPrecedent;
+
+    // Passage vers "livrée" : on déduit le stock des produits du catalogue
+    if (changementStatut && nouveauStatut === 'livree' && statutPrecedent !== 'livree') {
+      // 1) On vérifie d'abord que tout est disponible, avant de toucher quoi que ce soit
+      for (const ligne of commande.produits) {
+        if (ligne.produit) {
+          const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
+          if (produit && produit.stock < ligne.quantite) {
+            return res.status(400).json({
+              message: `Stock insuffisant pour ${produit.nom} : il ne reste que ${produit.stock} en stock.`,
+            });
+          }
+        }
+      }
+
+      // 2) Une fois tout validé, on déduit réellement
+      for (const ligne of commande.produits) {
+        if (ligne.produit) {
+          const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
+          if (produit) {
+            produit.stock -= ligne.quantite;
+            await produit.save();
+          }
+        }
+      }
+    }
+
+    // Si une commande livrée est repassée à un autre statut (correction), on restitue le stock
+    if (changementStatut && statutPrecedent === 'livree' && nouveauStatut !== 'livree') {
+      for (const ligne of commande.produits) {
+        if (ligne.produit) {
+          const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
+          if (produit) {
+            produit.stock += ligne.quantite;
+            await produit.save();
+          }
+        }
+      }
     }
 
     if (req.body.statut) {
