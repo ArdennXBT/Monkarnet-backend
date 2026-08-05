@@ -3,11 +3,12 @@ const Produit = require('../models/Produit');
 // Créer un produit
 const creerProduit = async (req, res) => {
   try {
-    const { nom, prix, coutRevient, stock, description, image } = req.body;
+    const { nom, categorie, prix, coutRevient, stock, description, image } = req.body;
 
     const produit = await Produit.create({
       commercant: req.commercantId,
       nom,
+      categorie,
       prix,
       coutRevient,
       stock,

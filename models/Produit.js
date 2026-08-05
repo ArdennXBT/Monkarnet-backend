@@ -12,6 +12,11 @@ const produitSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    categorie: {
+      type: String,
+      default: 'Autre',
+      trim: true,
+    },
     prix: {
       type: Number,
       required: true,
