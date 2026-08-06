@@ -83,7 +83,7 @@ const listerCommandes = async (req, res) => {
   }
 };
 
-// Modifier le statut d'une commande
+// Modifier une commande (statut seul, ou édition complète client + produits)
 const modifierCommande = async (req, res) => {
   try {
     const commande = await Commande.findOne({ _id: req.params.id, commercant: req.commercantId });
@@ -92,13 +92,84 @@ const modifierCommande = async (req, res) => {
       return res.status(404).json({ message: 'Commande introuvable.' });
     }
 
-    const statutPrecedent = commande.statut;
-    const nouveauStatut = req.body.statut;
-    const changementStatut = nouveauStatut && nouveauStatut !== statutPrecedent;
+    const { client, produits, statut } = req.body;
 
-    // Passage vers "livrée" : on déduit le stock des produits du catalogue
-    if (changementStatut && nouveauStatut === 'livree' && statutPrecedent !== 'livree') {
-      // 1) On vérifie d'abord que tout est disponible, avant de toucher quoi que ce soit
+    // ===== Cas 1 : édition complète (client + produits) =====
+    if (produits) {
+      let total = 0;
+      const lignesFinales = [];
+
+      for (const item of produits) {
+        if (item.produit) {
+          const produit = await Produit.findOne({ _id: item.produit, commercant: req.commercantId });
+          if (!produit) {
+            return res.status(404).json({ message: `Produit introuvable.` });
+          }
+          total += item.prixUnitaire * item.quantite;
+          lignesFinales.push({
+            produit: item.produit,
+            quantite: item.quantite,
+            prixUnitaire: item.prixUnitaire,
+          });
+        } else if (item.nomLibre) {
+          total += item.prixUnitaire * item.quantite;
+          lignesFinales.push({
+            nomLibre: item.nomLibre,
+            quantite: item.quantite,
+            prixUnitaire: item.prixUnitaire,
+          });
+        } else {
+          return res.status(400).json({ message: 'Chaque produit doit être choisi dans le catalogue ou saisi librement.' });
+        }
+      }
+
+      // Si la commande était déjà livrée : on restitue l'ancien stock, puis on déduit le nouveau
+      if (commande.statut === 'livree') {
+        for (const ancienneLigne of commande.produits) {
+          if (ancienneLigne.produit) {
+            const produit = await Produit.findOne({ _id: ancienneLigne.produit, commercant: req.commercantId });
+            if (produit) {
+              produit.stock += ancienneLigne.quantite;
+              await produit.save();
+            }
+          }
+        }
+
+        for (const ligne of lignesFinales) {
+          if (ligne.produit) {
+            const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
+            if (produit && produit.stock < ligne.quantite) {
+              return res.status(400).json({
+                message: `Stock insuffisant pour ${produit.nom} : il ne reste que ${produit.stock} en stock.`,
+              });
+            }
+          }
+        }
+
+        for (const ligne of lignesFinales) {
+          if (ligne.produit) {
+            const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
+            if (produit) {
+              produit.stock -= ligne.quantite;
+              await produit.save();
+            }
+          }
+        }
+      }
+
+      commande.produits = lignesFinales;
+      commande.total = total;
+    }
+
+    if (client) {
+      commande.client = client;
+    }
+
+    // ===== Cas 2 : changement de statut =====
+    const statutPrecedent = commande.statut;
+    const changementStatut = statut && statut !== statutPrecedent;
+
+    if (changementStatut && statut === 'livree' && statutPrecedent !== 'livree') {
       for (const ligne of commande.produits) {
         if (ligne.produit) {
           const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
@@ -109,8 +180,6 @@ const modifierCommande = async (req, res) => {
           }
         }
       }
-
-      // 2) Une fois tout validé, on déduit réellement
       for (const ligne of commande.produits) {
         if (ligne.produit) {
           const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
@@ -122,8 +191,7 @@ const modifierCommande = async (req, res) => {
       }
     }
 
-    // Si une commande livrée est repassée à un autre statut (correction), on restitue le stock
-    if (changementStatut && statutPrecedent === 'livree' && nouveauStatut !== 'livree') {
+    if (changementStatut && statutPrecedent === 'livree' && statut !== 'livree') {
       for (const ligne of commande.produits) {
         if (ligne.produit) {
           const produit = await Produit.findOne({ _id: ligne.produit, commercant: req.commercantId });
@@ -135,13 +203,15 @@ const modifierCommande = async (req, res) => {
       }
     }
 
-    if (req.body.statut) {
-      commande.statut = req.body.statut;
+    if (statut) {
+      commande.statut = statut;
     }
 
     await commande.save();
 
-    res.status(200).json(commande);
+    const commandePopulee = await Commande.findById(commande._id).populate('produits.produit', 'nom prix');
+
+    res.status(200).json(commandePopulee);
   } catch (error) {
     res.status(500).json({ message: 'Erreur serveur.', error: error.message });
   }
