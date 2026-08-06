@@ -1,5 +1,27 @@
 const Commande = require('../models/Commande');
 const Produit = require('../models/Produit');
+const Commercant = require('../models/Commercant');
+
+// Helper pour journaliser les actions des sous-comptes
+const journaliserAction = async (req, description) => {
+  try {
+    // On récupère l'utilisateur connecté
+    // (adapte selon ce que ton middleware "proteger" met dans req)
+    const utilisateur = req.user || await Commercant.findById(req.userId);
+
+    if (utilisateur && utilisateur.role === 'sous-compte') {
+      utilisateur.activites.unshift({
+        description,
+        date: new Date(),
+      });
+      utilisateur.activites = utilisateur.activites.slice(0, 20); // on garde max 20
+      await utilisateur.save();
+    }
+  } catch (err) {
+    // On ne fait jamais planter la requête à cause d'un log
+    console.error('Erreur journalisation :', err.message);
+  }
+};
 
 // Créer une commande
 const creerCommande = async (req, res) => {
@@ -63,6 +85,9 @@ const creerCommande = async (req, res) => {
       total,
       statut,
     });
+
+    // Journalisation
+    await journaliserAction(req, `a créé la commande ${numero}`);
 
     res.status(201).json(commande);
   } catch (error) {
@@ -209,6 +234,9 @@ const modifierCommande = async (req, res) => {
 
     await commande.save();
 
+    // Journalisation
+    await journaliserAction(req, `a modifié la commande ${commande.numero}`);
+
     const commandePopulee = await Commande.findById(commande._id).populate('produits.produit', 'nom prix');
 
     res.status(200).json(commandePopulee);
@@ -225,6 +253,9 @@ const supprimerCommande = async (req, res) => {
     if (!commande) {
       return res.status(404).json({ message: 'Commande introuvable.' });
     }
+
+    // Journalisation
+    await journaliserAction(req, `a supprimé la commande ${commande.numero}`);
 
     res.status(200).json({ message: 'Commande supprimée.' });
   } catch (error) {
