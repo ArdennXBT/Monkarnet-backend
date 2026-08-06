@@ -10,8 +10,10 @@ const {
   supprimerCategorie,
 } = require('../controllers/produitController');
 const { proteger } = require('../middlewares/authMiddleware');
+const { verifierPermission } = require('../middlewares/permissionMiddleware');
 
 router.use(proteger);
+router.use(verifierPermission('produits'));   // ← doit être ici, avant toutes les routes
 
 // Produits
 router.post('/', creerProduit);

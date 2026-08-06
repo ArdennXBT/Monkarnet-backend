@@ -1,6 +1,3 @@
-
-
-
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const bcrypt = require('bcryptjs');
@@ -50,25 +47,29 @@ const inscrire = async (req, res) => {
   }
 };
 
-
 // Connexion
 const connecter = async (req, res) => {
   try {
     const { email, motDePasse } = req.body;
 
-    // Vérifier que le commerçant existe
     const commercant = await Commercant.findOne({ email });
     if (!commercant) {
       return res.status(400).json({ message: 'Email ou mot de passe incorrect.' });
     }
 
-    // Comparer le mot de passe
     const motDePasseValide = await bcrypt.compare(motDePasse, commercant.motDePasse);
     if (!motDePasseValide) {
       return res.status(400).json({ message: 'Email ou mot de passe incorrect.' });
     }
 
-    // Générer le token JWT
+    // Met à jour la dernière connexion et journalise l'événement si c'est un sous-compte
+    commercant.derniereConnexion = new Date();
+    if (commercant.role === 'sous-compte') {
+      commercant.activites.unshift({ description: 'Connexion au compte', date: new Date() });
+      commercant.activites = commercant.activites.slice(0, 20);
+    }
+    await commercant.save();
+
     const token = jwt.sign({ id: commercant._id }, process.env.JWT_SECRET, {
       expiresIn: '30d',
     });
@@ -78,6 +79,8 @@ const connecter = async (req, res) => {
       nomComplet: commercant.nomComplet,
       email: commercant.email,
       nomCommerce: commercant.nomCommerce,
+      role: commercant.role,
+      roleSousCompte: commercant.roleSousCompte,
       token,
     });
   } catch (error) {
@@ -101,13 +104,23 @@ const connecterGoogle = async (req, res) => {
     let commercant = await Commercant.findOne({ email });
 
     if (!commercant) {
+      // Création d'un nouveau compte via Google
+      const motDePasseAleatoire = await bcrypt.hash(Math.random().toString(36) + Date.now(), 10);
       commercant = await Commercant.create({
         nomComplet: name,
         email,
-        motDePasse: await bcrypt.hash(Math.random().toString(36), 10),
+        motDePasse: motDePasseAleatoire,
         nomCommerce: `${name} - Commerce`,
       });
     }
+
+    // Mise à jour dernière connexion + activité (même logique que la connexion classique)
+    commercant.derniereConnexion = new Date();
+    if (commercant.role === 'sous-compte') {
+      commercant.activites.unshift({ description: 'Connexion au compte (Google)', date: new Date() });
+      commercant.activites = commercant.activites.slice(0, 20);
+    }
+    await commercant.save();
 
     const token = jwt.sign({ id: commercant._id }, process.env.JWT_SECRET, {
       expiresIn: '30d',
@@ -118,6 +131,8 @@ const connecterGoogle = async (req, res) => {
       nomComplet: commercant.nomComplet,
       email: commercant.email,
       nomCommerce: commercant.nomCommerce,
+      role: commercant.role,
+      roleSousCompte: commercant.roleSousCompte,
       token,
     });
   } catch (error) {
