@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 const Commande = require('../models/Commande');
 
@@ -17,6 +16,10 @@ const listerClients = async (req, res) => {
           nombreCommandes: { $sum: 1 },
           totalDepense: { $sum: '$total' },
           derniereCommande: { $max: '$createdAt' },
+          dateCreation: { $min: '$createdAt' },
+          commandes: {
+            $push: { date: '$createdAt', montant: '$total' },
+          },
         },
       },
       { $sort: { derniereCommande: -1 } },
