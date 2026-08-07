@@ -49,7 +49,7 @@ const commercantSchema = new mongoose.Schema(
       ref: 'Commercant',
       default: null,
     },
-    // --- Nouveaux champs pour les sous-comptes ---
+    // --- Champs pour les sous-comptes ---
     roleSousCompte: {
       type: String,
       enum: ['admin', 'vendeur', 'comptable', 'livreur'],
@@ -65,6 +65,19 @@ const commercantSchema = new mongoose.Schema(
         date: { type: Date, default: Date.now },
       },
     ],
+    // --- Vérification email ---
+    emailVerifie: {
+      type: Boolean,
+      default: false,
+    },
+    codeVerification: {
+      type: String,
+      default: null,
+    },
+    codeVerificationExpire: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
