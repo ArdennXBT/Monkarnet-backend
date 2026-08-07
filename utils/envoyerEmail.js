@@ -2,16 +2,16 @@ const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const envoyerCodeVerification = async (email, nomComplet, code) => {
+const envoyerEmailCode = async (email, nomComplet, code, { sujet, intro }) => {
   try {
     await resend.emails.send({
       from: 'Orbizo <noreply@orbizo.xyz>',
       to: email,
-      subject: 'Votre code de vérification Orbizo',
+      subject: sujet,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
-          <h2 style="color: #1E3A8A;">Bienvenue sur Orbizo, ${nomComplet} 👋</h2>
-          <p>Voici votre code de vérification :</p>
+          <h2 style="color: #1E3A8A;">Bonjour ${nomComplet},</h2>
+          <p>${intro}</p>
           <div style="background: #F5F6F8; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
             <span style="font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #1E3A8A;">${code}</span>
           </div>
@@ -22,8 +22,30 @@ const envoyerCodeVerification = async (email, nomComplet, code) => {
     });
   } catch (error) {
     console.error('Erreur envoi email :', error.message);
-    throw new Error("Impossible d'envoyer l'email de vérification.");
+    throw new Error("Impossible d'envoyer l'email.");
   }
 };
 
-module.exports = { envoyerCodeVerification };
+const envoyerCodeVerification = (email, nomComplet, code) =>
+  envoyerEmailCode(email, nomComplet, code, {
+    sujet: 'Votre code de vérification Orbizo',
+    intro: 'Bienvenue sur Orbizo 👋 Voici votre code de vérification :',
+  });
+
+const envoyerCodeChangementEmail = (email, nomComplet, code) =>
+  envoyerEmailCode(email, nomComplet, code, {
+    sujet: 'Confirmez votre nouvelle adresse email',
+    intro: 'Vous avez demandé à changer votre adresse email sur Orbizo. Voici votre code de confirmation :',
+  });
+
+const envoyerCodeResetMotDePasse = (email, nomComplet, code) =>
+  envoyerEmailCode(email, nomComplet, code, {
+    sujet: 'Réinitialisation de votre mot de passe Orbizo',
+    intro: 'Vous avez demandé à réinitialiser votre mot de passe. Voici votre code :',
+  });
+
+module.exports = {
+  envoyerCodeVerification,
+  envoyerCodeChangementEmail,
+  envoyerCodeResetMotDePasse,
+};

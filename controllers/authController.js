@@ -3,7 +3,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Commercant = require('../models/Commercant');
-const { envoyerCodeVerification } = require('../utils/envoyerEmail');
+const { envoyerCodeVerification, envoyerCodeResetMotDePasse } = require('../utils/envoyerEmail');
 
 const genererCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -11,6 +11,10 @@ const genererCode = () => Math.floor(100000 + Math.random() * 900000).toString()
 const inscrire = async (req, res) => {
   try {
     const { nomComplet, email, motDePasse, nomCommerce, typeCommerce, adresse, telephone } = req.body;
+
+    if (!motDePasse || motDePasse.length < 6) {
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères.' });
+    }
 
     const commercantExistant = await Commercant.findOne({ email });
     if (commercantExistant) {
@@ -32,7 +36,7 @@ const inscrire = async (req, res) => {
       telephone,
       emailVerifie: false,
       codeVerification: code,
-      codeVerificationExpire: new Date(Date.now() + 15 * 60 * 1000),
+      codeVerificationExpire: new Date(Date.now() + 15 * 60 *  1000),
     });
 
     await envoyerCodeVerification(email, nomComplet, code);
@@ -166,7 +170,7 @@ const connecter = async (req, res) => {
   }
 };
 
-// Connexion / inscription via Google (email déjà vérifié par Google)
+// Connexion / inscription via Google
 const connecterGoogle = async (req, res) => {
   try {
     const { credential } = req.body;
@@ -188,10 +192,12 @@ const connecterGoogle = async (req, res) => {
         email,
         motDePasse: motDePasseAleatoire,
         nomCommerce: `${name} - Commerce`,
-        emailVerifie: true, // Google a déjà vérifié l'email
+        emailVerifie: true,
       });
     } else if (!commercant.emailVerifie) {
       commercant.emailVerifie = true;
+      commercant.codeVerification = null;
+      commercant.codeVerificationExpire = null;
     }
 
     commercant.derniereConnexion = new Date();
@@ -219,4 +225,69 @@ const connecterGoogle = async (req, res) => {
   }
 };
 
-module.exports = { inscrire, connecter, connecterGoogle, verifierEmail, renvoyerCode };
+// Étape 1 : demander la réinitialisation
+const motDePasseOublie = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const commercant = await Commercant.findOne({ email });
+    if (!commercant) {
+      return res.status(200).json({ message: 'Si ce compte existe, un code a été envoyé.' });
+    }
+
+    const code = genererCode();
+    commercant.codeResetMotDePasse = code;
+    commercant.codeResetMotDePasseExpire = new Date(Date.now() + 15 * 60 * 1000);
+    await commercant.save();
+
+    await envoyerCodeResetMotDePasse(email, commercant.nomComplet, code);
+
+    res.status(200).json({ message: 'Si ce compte existe, un code a été envoyé.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Erreur serveur.', error: error.message });
+  }
+};
+
+// Étape 2 : vérifier le code et définir le nouveau mot de passe
+const reinitialiserMotDePasse = async (req, res) => {
+  try {
+    const { email, code, nouveauMotDePasse } = req.body;
+
+    const commercant = await Commercant.findOne({ email });
+    if (!commercant || !commercant.codeResetMotDePasse) {
+      return res.status(400).json({ message: 'Code invalide ou expiré.' });
+    }
+
+    if (commercant.codeResetMotDePasse !== code) {
+      return res.status(400).json({ message: 'Code incorrect.' });
+    }
+
+    if (new Date() > commercant.codeResetMotDePasseExpire) {
+      return res.status(400).json({ message: 'Ce code a expiré. Recommencez la demande.' });
+    }
+
+    if (!nouveauMotDePasse || nouveauMotDePasse.length < 6) {
+      return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    commercant.motDePasse = await bcrypt.hash(nouveauMotDePasse, salt);
+    commercant.codeResetMotDePasse = null;
+    commercant.codeResetMotDePasseExpire = null;
+    await commercant.save();
+
+    res.status(200).json({ message: 'Mot de passe réinitialisé avec succès.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Erreur serveur.', error: error.message });
+  }
+};
+
+module.exports = {
+  inscrire,
+  connecter,
+  connecterGoogle,
+  verifierEmail,
+  renvoyerCode,
+  motDePasseOublie,
+  reinitialiserMotDePasse,
+};

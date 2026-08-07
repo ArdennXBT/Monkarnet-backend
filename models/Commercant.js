@@ -78,13 +78,34 @@ const commercantSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // --- Changement d'email ---
+    nouvelEmail: {
+      type: String,
+      default: null,
+    },
+    codeChangementEmail: {
+      type: String,
+      default: null,
+    },
+    codeChangementEmailExpire: {
+      type: Date,
+      default: null,
+    },
+    // --- Réinitialisation mot de passe ---
+    codeResetMotDePasse: {
+      type: String,
+      default: null,
+    },
+    codeResetMotDePasseExpire: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
 // Le statut est calculé automatiquement : "attente" tant que le sous-compte
 // ne s'est jamais connecté, "actif" dès sa première connexion.
-// Pas besoin de le gérer manuellement, ni de construire un flux d'invitation par email.
 commercantSchema.virtual('statut').get(function () {
   return this.derniereConnexion ? 'actif' : 'attente';
 });
