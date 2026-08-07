@@ -1,6 +1,6 @@
-
 const mongoose = require('mongoose');
 const Commande = require('../models/Commande');
+const Produit = require('../models/Produit');
 
 const getStats = async (req, res) => {
   try {
@@ -34,30 +34,69 @@ const getStats = async (req, res) => {
       return resultat[0] || { totalCA: 0, nombreCommandes: 0 };
     };
 
-    const [statsJour, statsSemaine, statsMois, statsAnnee] = await Promise.all([
+    // Produit le plus vendu (en quantité) du mois en cours
+    const calculerTopProduit = async () => {
+      const resultat = await Commande.aggregate([
+        {
+          $match: {
+            commercant: commercantId,
+            createdAt: { $gte: debutMois },
+            statut: { $ne: 'annulee' },
+          },
+        },
+        { $unwind: '$produits' },
+        {
+          $group: {
+            _id: {
+              produit: '$produits.produit',
+              nomLibre: '$produits.nomLibre',
+            },
+            quantiteVendue: { $sum: '$produits.quantite' },
+          },
+        },
+        { $sort: { quantiteVendue: -1 } },
+        { $limit: 1 },
+      ]);
+
+      if (resultat.length === 0) return null;
+
+      const top = resultat[0];
+
+      if (top._id.produit) {
+        const produit = await Produit.findById(top._id.produit).select('nom image prix');
+        if (produit) {
+          return {
+            nom: produit.nom,
+            image: produit.image,
+            prix: produit.prix,
+            quantiteVendue: top.quantiteVendue,
+          };
+        }
+      }
+
+      // Produit "libre" (sans fiche produit associée)
+      return {
+        nom: top._id.nomLibre || 'Produit',
+        image: '',
+        prix: null,
+        quantiteVendue: top.quantiteVendue,
+      };
+    };
+
+    const [statsJour, statsSemaine, statsMois, statsAnnee, topProduit] = await Promise.all([
       calculerPeriode(debutJour),
       calculerPeriode(debutSemaine),
       calculerPeriode(debutMois),
       calculerPeriode(debutAnnee),
+      calculerTopProduit(),
     ]);
-
-    const livraisonsEnCours = await Commande.countDocuments({
-      commercant: commercantId,
-      statut: 'en_cours',
-    });
-
-    const litigesOuverts = await Commande.countDocuments({
-      commercant: commercantId,
-      statut: 'litige',
-    });
 
     res.status(200).json({
       jour: statsJour,
       semaine: statsSemaine,
       mois: statsMois,
       annee: statsAnnee,
-      livraisonsEnCours,
-      litigesOuverts,
+      topProduit,
     });
   } catch (error) {
     res.status(500).json({ message: 'Erreur serveur.', error: error.message });
@@ -81,8 +120,8 @@ const getChartData = async (req, res) => {
       labelsOrdre = [0, 4, 8, 12, 16, 20];
     } else if (periode === 'semaine') {
       dateDebut = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - maintenant.getDay());
-      groupBy = { $dayOfWeek: '$createdAt' }; // 1=dimanche ... 7=samedi
-      labelsOrdre = [2, 3, 4, 5, 6, 7, 1]; // Lun -> Dim
+      groupBy = { $dayOfWeek: '$createdAt' };
+      labelsOrdre = [2, 3, 4, 5, 6, 7, 1];
     } else if (periode === 'mois') {
       dateDebut = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
       groupBy = { $ceil: { $divide: [{ $dayOfMonth: '$createdAt' }, 7] } };
