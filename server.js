@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -13,15 +12,24 @@ const profilRoutes = require('./routes/profilRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const rechercheRoutes = require('./routes/rechercheRoutes');
-
-
+const abonnementRoutes = require('./routes/abonnementRoutes');
 
 connectDB();
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+
+// On capture le body brut (rawBody) pendant le parsing JSON,
+// nécessaire pour vérifier la signature HMAC des webhooks Sebpay
+app.use(
+  express.json({
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/produits', produitRoutes);
 app.use('/api/commandes', commandeRoutes);
@@ -32,7 +40,7 @@ app.use('/api/profil', profilRoutes);
 app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/recherche', rechercheRoutes);
-
+app.use('/api/abonnement', abonnementRoutes);
 
 app.get('/', (req, res) => {
   res.send('API Monkarnet en ligne');

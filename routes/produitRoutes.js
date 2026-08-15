@@ -11,8 +11,10 @@ const {
 } = require('../controllers/produitController');
 const { proteger } = require('../middlewares/authMiddleware');
 const { verifierPermission } = require('../middlewares/permissionMiddleware');
+const { verifierAbonnement } = require('../middlewares/abonnementMiddleware');
 
 router.use(proteger);
+router.use(verifierAbonnement);               // ← bloque si essai/abonnement expiré
 router.use(verifierPermission('produits'));   // ← doit être ici, avant toutes les routes
 
 // Produits

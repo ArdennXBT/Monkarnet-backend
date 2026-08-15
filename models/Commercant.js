@@ -100,6 +100,33 @@ const commercantSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // --- Abonnement ---
+    plan: {
+      type: String,
+      enum: ['gratuit', 'mensuel', 'annuel'],
+      default: 'gratuit',
+    },
+    dateFinEssai: {
+      type: Date,
+      default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 jours après création
+    },
+    dateFinAbonnement: {
+      type: Date,
+      default: null,
+    },
+    rappelEssaiEnvoye: {
+      type: Boolean,
+      default: false,
+    },
+    historiquePaiements: [
+      {
+        plan: { type: String, enum: ['mensuel', 'annuel'] },
+        montant: { type: Number },
+        transactionId: { type: String },
+        statut: { type: String, enum: ['en_attente', 'reussi', 'echoue'], default: 'en_attente' },
+        date: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -108,6 +135,14 @@ const commercantSchema = new mongoose.Schema(
 // ne s'est jamais connecté, "actif" dès sa première connexion.
 commercantSchema.virtual('statut').get(function () {
   return this.derniereConnexion ? 'actif' : 'attente';
+});
+
+// Jours restants de l'essai gratuit (null si plan payant déjà actif)
+commercantSchema.virtual('essaiJoursRestants').get(function () {
+  if (this.plan !== 'gratuit' || !this.dateFinEssai) return null;
+  const diffMs = new Date(this.dateFinEssai) - new Date();
+  const jours = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  return jours > 0 ? jours : 0;
 });
 
 commercantSchema.set('toJSON', { virtuals: true });
