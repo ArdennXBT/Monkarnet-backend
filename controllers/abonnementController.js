@@ -1,35 +1,42 @@
 const axios = require('axios');
-const crypto = require('crypto');
+const { Webhook } = require('standardwebhooks');
 const Commercant = require('../models/Commercant');
 
-// Prix en FCFA
-const PRIX = {
-  mensuel: 4200,
-  annuel: 30240,
+// 'test_mode' en développement, 'live_mode' en production
+const DODO_ENV = process.env.DODO_ENVIRONMENT || 'test_mode';
+const DODO_BASE_URL =
+  DODO_ENV === 'live_mode' ? 'https://live.dodopayments.com' : 'https://test.dodopayments.com';
+
+// IDs des produits créés dans le dashboard Dodo (Produits > Créer un produit)
+const PRODUIT_ID = {
+  mensuel: process.env.DODO_PRODUCT_ID_MENSUEL,
+  annuel: process.env.DODO_PRODUCT_ID_ANNUEL,
 };
 
-const SEBPAY_BASE_URL = 'https://newapi.sebpay.bj/api/v1';
-
-const sebpayClient = axios.create({
-  baseURL: SEBPAY_BASE_URL,
+const dodoClient = axios.create({
+  baseURL: DODO_BASE_URL,
   headers: {
-    'X-Public-Key': process.env.SEBPAY_PUBLIC_KEY,
-    'X-Secret-Key': process.env.SEBPAY_SECRET_KEY,
+    Authorization: `Bearer ${process.env.DODO_API_KEY}`,
     'Content-Type': 'application/json',
   },
 });
 
-// --- Initier un paiement d'abonnement ---
+const webhookVerifier = new Webhook(process.env.DODO_WEBHOOK_SECRET);
+
+// --- Initier un paiement d'abonnement : crée une session de checkout Dodo ---
 const souscrire = async (req, res) => {
   try {
-    const { plan, phone, operator } = req.body; // 'mensuel' | 'annuel', numéro, opérateur (mtn, moov, orange, wav...)
+    const { plan } = req.body; // 'mensuel' | 'annuel'
 
     if (!['mensuel', 'annuel'].includes(plan)) {
       return res.status(400).json({ message: 'Plan invalide.' });
     }
 
-    if (!phone || !operator) {
-      return res.status(400).json({ message: 'Numéro de téléphone et opérateur requis.' });
+    const productId = PRODUIT_ID[plan];
+    if (!productId) {
+      return res
+        .status(500)
+        .json({ message: `Aucun produit Dodo configuré pour le plan ${plan}.` });
     }
 
     const commercant = await Commercant.findById(req.commercantId);
@@ -37,109 +44,72 @@ const souscrire = async (req, res) => {
       return res.status(404).json({ message: 'Commerçant introuvable.' });
     }
 
-    const montant = PRIX[plan];
-
-    // Référence unique pour cette transaction
-    const externalReference = `ORBIZO-${commercant._id}-${Date.now()}`;
-
-    // --- Créer la collecte chez Sebpay ---
-    const { data } = await sebpayClient.post('/collections', {
-      amount: montant,
-      currency: 'XOF',
-      phone,
-      operator,
-      country: 'BJ',
-      external_reference: externalReference,
-      callback_url: `${process.env.BACKEND_URL}/api/abonnement/webhook`,
+    const { data: session } = await dodoClient.post('/checkouts', {
+      product_cart: [{ product_id: productId, quantity: 1 }],
+      customer: {
+        email: commercant.email,
+        name: commercant.nomCommerce || commercant.nomComplet || commercant.email,
+      },
+      return_url: `${process.env.FRONTEND_URL}/abonnement?paiement=succes`,
+      // La metadata est renvoyée telle quelle dans le webhook : c'est ainsi
+      // qu'on retrouve le commerçant concerné une fois le paiement confirmé.
+      metadata: {
+        commercantId: commercant._id.toString(),
+        plan,
+      },
     });
 
-    if (!data.success) {
-      return res.status(400).json({ message: data.message || 'Échec de la création du paiement.' });
-    }
-
-    const transaction = data.data; // { transaction_id, status, external_reference, amount, currency, provider_link, message }
-
-    // --- Enregistrer la transaction en attente ---
-    commercant.historiquePaiements.push({
-      plan,
-      montant,
-      transactionId: transaction.transaction_id,
-      statut: 'en_attente',
-    });
-    await commercant.save();
-
-    res.json({
-      message: transaction.message,
-      transactionId: transaction.transaction_id,
-      statut: transaction.status,
-      providerLink: transaction.provider_link || null, // à rediriger si présent (ex: Wave)
-    });
+    res.json({ checkoutUrl: session.checkout_url });
   } catch (error) {
-    console.error('Erreur souscription Sebpay :', error.response?.data || error.message);
+    console.error('Erreur souscription Dodo :', error.response?.data || error.message);
     res.status(500).json({ message: "Erreur lors de l'initialisation du paiement." });
   }
 };
 
-// --- Vérifie la signature HMAC-SHA256 envoyée par Sebpay ---
-const verifierSignature = (payloadBrut, signatureRecue) => {
-  const signatureCalculee = crypto
-    .createHmac('sha256', process.env.SEBPAY_SECRET_KEY)
-    .update(payloadBrut)
-    .digest('hex');
-
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureCalculee),
-    Buffer.from(signatureRecue || '')
-  );
-};
-
-// --- Webhook appelé automatiquement par Sebpay ---
+// --- Webhook appelé automatiquement par Dodo Payments ---
 const webhook = async (req, res) => {
   try {
-    const signatureRecue = req.headers['x-sebpay-signature'];
-    const payloadBrut = req.rawBody;
+    const webhookHeaders = {
+      'webhook-id': req.headers['webhook-id'],
+      'webhook-signature': req.headers['webhook-signature'],
+      'webhook-timestamp': req.headers['webhook-timestamp'],
+    };
 
-    if (!verifierSignature(payloadBrut, signatureRecue)) {
-      console.warn('Webhook Sebpay : signature invalide, requête ignorée.');
-      return res.status(401).json({ message: 'Signature invalide.' });
+    const payloadBrut = req.rawBody.toString();
+
+    // Lève une erreur si la signature est invalide → capturée par le catch plus bas
+    await webhookVerifier.verify(payloadBrut, webhookHeaders);
+
+    const event = req.body;
+
+    // Événements qui signifient "le paiement/l'abonnement est confirmé"
+    const typesReussis = ['subscription.active', 'subscription.renewed', 'payment.succeeded'];
+
+    if (!typesReussis.includes(event.type)) {
+      return res.status(200).json({ received: true }); // on accuse réception, rien à faire
     }
 
-    const {
-      transaction_id: transactionId,
-      external_reference: externalReference,
-      status,
-    } = req.body;
+    const metadata = event.data?.metadata || {};
+    const { commercantId, plan } = metadata;
 
-    if (!transactionId || !status) {
-      return res.status(400).json({ message: 'Données manquantes.' });
+    if (!commercantId || !plan) {
+      console.warn(`Webhook Dodo : metadata incomplète pour l'événement ${event.type}`);
+      return res.status(200).json({ received: true });
     }
 
-    // On ne traite que les paiements confirmés
-    if (status !== 'approved') {
-      return res.status(200).json({ received: true }); // rejected/pending → on accuse réception sans agir
-    }
-
-    // Recherche du commerçant via la transaction stockée dans son historique
-    const commercant = await Commercant.findOne({
-      'historiquePaiements.transactionId': transactionId,
-    });
-
+    const commercant = await Commercant.findById(commercantId);
     if (!commercant) {
-      console.warn(`Webhook Sebpay : commerçant introuvable pour transaction ${transactionId}`);
-      return res.status(200).json({ received: true }); // on répond 200 quand même pour éviter les retry infinis
+      console.warn(`Webhook Dodo : commerçant introuvable (${commercantId})`);
+      return res.status(200).json({ received: true }); // 200 quand même pour éviter les retry infinis
     }
 
-    // Idempotence : si déjà traité comme "reussi", on ne refait rien
-    const paiement = commercant.historiquePaiements.find(
-      (p) => p.transactionId === transactionId
+    const referenceId = event.data.subscription_id || event.data.payment_id;
+
+    // Idempotence : si cet événement a déjà été traité comme "reussi", on ne refait rien
+    const dejaTraite = commercant.historiquePaiements.some(
+      (p) => p.transactionId === referenceId && p.statut === 'reussi'
     );
-
-    if (paiement && paiement.statut === 'reussi') {
-      return res.status(200).json({ received: true }); // déjà traité
-    }
-
-    const plan = paiement?.plan;
-    if (!plan) {
+    if (dejaTraite) {
       return res.status(200).json({ received: true });
     }
 
@@ -149,14 +119,19 @@ const webhook = async (req, res) => {
     commercant.dateFinAbonnement = new Date(Date.now() + dureeJours * 24 * 60 * 60 * 1000);
     commercant.rappelEssaiEnvoye = false;
 
-    if (paiement) paiement.statut = 'reussi';
+    commercant.historiquePaiements.push({
+      plan,
+      montant: event.data.total_amount ? event.data.total_amount / 100 : undefined,
+      transactionId: referenceId,
+      statut: 'reussi',
+    });
 
     await commercant.save();
 
     res.status(200).json({ received: true });
   } catch (error) {
-    console.error('Erreur webhook Sebpay :', error.message);
-    res.status(500).json({ message: 'Erreur lors du traitement du webhook.' });
+    console.error('Erreur webhook Dodo :', error.message);
+    res.status(400).json({ message: 'Signature invalide ou erreur de traitement.' });
   }
 };
 
@@ -180,48 +155,4 @@ const statutAbonnement = async (req, res) => {
   }
 };
 
-// --- Vérifier manuellement le statut d'une transaction (polling frontend) ---
-const verifierTransaction = async (req, res) => {
-  try {
-    const { transactionId } = req.params;
-
-    const commercant = await Commercant.findById(req.commercantId);
-    if (!commercant) {
-      return res.status(404).json({ message: 'Commerçant introuvable.' });
-    }
-
-    const paiement = commercant.historiquePaiements.find(
-      (p) => p.transactionId === transactionId
-    );
-
-    if (!paiement) {
-      return res.status(404).json({ message: 'Transaction introuvable.' });
-    }
-
-    // Si déjà confirmé en base (via webhook), pas besoin de rappeler Sebpay
-    if (paiement.statut === 'reussi') {
-      return res.json({ statut: 'approved' });
-    }
-
-    // Sinon on vérifie directement auprès de Sebpay (au cas où le webhook n'est pas encore arrivé)
-    const { data } = await sebpayClient.get(`/collections/${transactionId}`);
-    const transaction = data.data;
-
-    if (transaction.status === 'approved' && paiement.statut !== 'reussi') {
-      // Sécurité : si le webhook a raté (ex: Render endormi), on met à jour ici aussi
-      const dureeJours = paiement.plan === 'annuel' ? 365 : 30;
-      commercant.plan = paiement.plan;
-      commercant.dateFinAbonnement = new Date(Date.now() + dureeJours * 24 * 60 * 60 * 1000);
-      commercant.rappelEssaiEnvoye = false;
-      paiement.statut = 'reussi';
-      await commercant.save();
-    }
-
-    res.json({ statut: transaction.status });
-  } catch (error) {
-    console.error('Erreur vérification transaction :', error.response?.data || error.message);
-    res.status(500).json({ message: 'Erreur lors de la vérification.' });
-  }
-};
-
-module.exports = { souscrire, webhook, statutAbonnement, verifierTransaction };
+module.exports = { souscrire, webhook, statutAbonnement };
