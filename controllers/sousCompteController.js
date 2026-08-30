@@ -27,6 +27,16 @@ const creerSousCompte = async (req, res) => {
       return res.status(403).json({ message: 'Seul le compte principal peut créer des sous-comptes.' });
     }
 
+    const LIMITE_SOUS_COMPTES = 3;
+    const nombreSousComptes = await Commercant.countDocuments({ parentCommercant: demandeur._id });
+
+    if (nombreSousComptes >= LIMITE_SOUS_COMPTES) {
+      return res.status(403).json({
+        message: `Vous avez atteint la limite de ${LIMITE_SOUS_COMPTES} sous-comptes.`,
+        code: 'LIMITE_SOUS_COMPTES_ATTEINTE',
+      });
+    }
+
     const { nomComplet, email, motDePasse, roleSousCompte } = req.body;
 
     const existant = await Commercant.findOne({ email });
