@@ -13,6 +13,53 @@ const getStats = async (req, res) => {
     const debutMois = new Date(maintenant.getFullYear(), maintenant.getMonth(), 1);
     const debutAnnee = new Date(maintenant.getFullYear(), 0, 1);
 
+    // Bénéfice = somme((prix de vente - coût de revient) × quantité) sur la période.
+    // Pour les produits "libres" (texte sans fiche produit), le coût est inconnu :
+    // on le considère à 0 (le bénéfice affiché est donc une estimation haute pour ces lignes).
+    const calculerBenefice = async (dateDebut) => {
+      const resultat = await Commande.aggregate([
+        {
+          $match: {
+            commercant: commercantId,
+            createdAt: { $gte: dateDebut },
+            statut: { $ne: 'annulee' },
+          },
+        },
+        { $unwind: '$produits' },
+        {
+          $lookup: {
+            from: 'produits',
+            localField: 'produits.produit',
+            foreignField: '_id',
+            as: 'infoProduit',
+          },
+        },
+        {
+          $addFields: {
+            coutUnitaire: { $ifNull: [{ $arrayElemAt: ['$infoProduit.coutRevient', 0] }, 0] },
+          },
+        },
+        {
+          $addFields: {
+            beneficeLigne: {
+              $multiply: [
+                '$produits.quantite',
+                { $subtract: ['$produits.prixUnitaire', '$coutUnitaire'] },
+              ],
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalBenefice: { $sum: '$beneficeLigne' },
+          },
+        },
+      ]);
+
+      return resultat[0]?.totalBenefice || 0;
+    };
+
     const calculerPeriode = async (dateDebut) => {
       const resultat = await Commande.aggregate([
         {
@@ -31,7 +78,10 @@ const getStats = async (req, res) => {
         },
       ]);
 
-      return resultat[0] || { totalCA: 0, nombreCommandes: 0 };
+      const { totalCA, nombreCommandes } = resultat[0] || { totalCA: 0, nombreCommandes: 0 };
+      const totalBenefice = await calculerBenefice(dateDebut);
+
+      return { totalCA, nombreCommandes, totalBenefice };
     };
 
     // Produit le plus vendu (en quantité) du mois en cours
