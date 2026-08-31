@@ -26,7 +26,7 @@ const verifierAbonnement = async (req, res, next) => {
     if (commercant.plan === 'gratuit') {
       if (maintenant > new Date(commercant.dateFinEssai)) {
         return res.status(402).json({
-          message: "La période d'essai gratuite de 14 jours est terminée. Souscrivez à un abonnement pour continuer.",
+          message: "La période d'essai gratuite de 7 jours est terminée. Souscrivez à un abonnement pour continuer.",
           code: 'ESSAI_EXPIRE',
         });
       }

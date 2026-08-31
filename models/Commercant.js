@@ -108,7 +108,7 @@ const commercantSchema = new mongoose.Schema(
     },
     dateFinEssai: {
       type: Date,
-      default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 jours après création
+      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 jours après création
     },
     dateFinAbonnement: {
       type: Date,
