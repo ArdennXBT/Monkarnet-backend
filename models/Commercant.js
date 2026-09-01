@@ -106,6 +106,12 @@ const commercantSchema = new mongoose.Schema(
       enum: ['gratuit', 'mensuel', 'annuel'],
       default: 'gratuit',
     },
+    // --- Devise préférée du commerçant ---
+    devise: {
+      type: String,
+      enum: ['USD', 'EUR', 'XOF', 'MAD', 'DZD', 'EGP', 'GBP', 'CAD', 'CHF'],
+      default: 'USD',
+    },
     dateFinEssai: {
       type: Date,
       default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 jours après création

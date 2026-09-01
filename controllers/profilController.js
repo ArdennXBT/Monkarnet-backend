@@ -28,12 +28,13 @@ const modifierProfil = async (req, res) => {
       return res.status(404).json({ message: 'Compte introuvable.' });
     }
 
-    const { nomCommerce, typeCommerce, adresse, telephone } = req.body;
+    const { nomCommerce, typeCommerce, adresse, telephone, devise } = req.body;
 
     if (nomCommerce !== undefined) commercant.nomCommerce = nomCommerce;
     if (typeCommerce !== undefined) commercant.typeCommerce = typeCommerce;
     if (adresse !== undefined) commercant.adresse = adresse;
     if (telephone !== undefined) commercant.telephone = telephone;
+    if (devise !== undefined) commercant.devise = devise;
 
     await commercant.save();
 
